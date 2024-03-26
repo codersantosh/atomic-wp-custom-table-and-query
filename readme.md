@@ -92,7 +92,7 @@ Thank you for contributing to this project!
 
 See also the list of [contributors](https://github.com/codersantosh/acme-coming-soon/graphs/contributors) who participated in this project.
 
-## Resources
+## Recommendations
 
 - [WP React Plugin Boilerplate](https://github.com/codersantosh/wp-react-plugin-boilerplate)
 - [Atrc (atrc) - Atomic React Components](https://www.npmjs.com/package/atrc)
