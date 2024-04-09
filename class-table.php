@@ -123,9 +123,6 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 	 */
 	public function generate_cache_key( $sql = '' ) {
 		$last_changed = $this->get_last_changed();
-		if ( ! $last_changed ) {
-			return '';
-		}
 
 		$key = md5( $sql );
 		return apply_filters( 'atomic_wp_custom_table_and_query_generate_cache_key', "$this->table_name:$key:$last_changed", $sql );
@@ -167,6 +164,44 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 	}
 
 	/**
+	 * Delete cache value.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string $cache_key Cache key.
+	 *
+	 * @return string Cache key.
+	 */
+	public function delete_cache_value( $cache_key ) {
+		if ( ! $this->cache_group ) {
+			return false;
+		}
+
+		return wp_cache_delete( $cache_key, $this->cache_group );
+	}
+
+	/**
+	 * Generate error message for debugging purpose
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string $message error message.
+	 * @param string $function_name Function name.
+	 *
+	 * @return string Error message.
+	 */
+	public function get_error_message( $message, $function_name ) {
+
+		return sprintf(
+		// Translators: %1$s is a placeholder for the message, %2$s is a placeholder for the function name, and %3$s is a placeholder for the table name.
+			esc_html__( '%1$s on function %2$s on table %3$s.', 'atomic-wp-custom-table-and-query' ),
+			$message,
+			$function_name,
+			$this->table_name
+		);
+	}
+
+	/**
 	 * Retrieve a row by the primary key
 	 *
 	 * @since   1.0.0
@@ -177,13 +212,20 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 	public function get( $row_id ) {
 		try {
 
-			$row_id = absint( $row_id );
-			if ( ! $row_id ) {
-				throw new InvalidArgumentException( esc_html__( '$row_id must be a non-zero integer', 'atomic-wp-custom-table-and-query' ) );
+			$id = absint( $row_id );
+			if ( ! $id ) {
+				throw new InvalidArgumentException(
+					sprintf(
+						// Translators: %s is a placeholder for the row ID.
+						esc_html__( '$row_id must be a non-zero integer but provided "%s"', 'atomic-wp-custom-table-and-query' ),
+						$row_id
+					)
+				);
 			}
 			global $wpdb;
 
-			$sql         = $wpdb->prepare( 'SELECT * FROM %s WHERE %s = %d LIMIT 1;', $this->table_name, $this->primary_key, $row_id );
+			$sql = "SELECT * FROM {$this->table_name} WHERE {$this->primary_key} = {$id} LIMIT 1;";
+
 			$cache_key   = $this->generate_cache_key( $sql );
 			$cache_value = $this->get_cache_value( $cache_key );
 
@@ -194,17 +236,35 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 
 			return $this->escaping_data( $cache_value );
 		} catch ( InvalidArgumentException $e ) {
-			// Log the argument exception message.
-			error_log( $e->getMessage() );//phpcs:ignore
 
-			// Return a custom error message.
-			return new WP_Error( 'invalid_argument', $e->getMessage() );
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'get'
+			);
+
+            //phpcs:ignore
+			error_log(
+				$error_message
+			);
+
+			return new WP_Error(
+				'invalid_argument',
+				$error_message
+			);
 		} catch ( Exception $e ) {
-			// Log the exception message.
-			error_log( $e->getMessage() );//phpcs:ignore
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'get'
+			);
+             //phpcs:ignore
+			error_log(
+				$error_message
+			);
 
-			// Return a custom error message.
-			return new WP_Error( 'db_error', $e->getMessage() );
+			return new WP_Error(
+				'db_error',
+				$error_message
+			);
 		}
 	}
 
@@ -214,36 +274,56 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 	 * @since   1.0.0
 	 * @throws WP_Error||InvalidArgumentException If the function encounters a specific condition.
 	 * @param string $column id of row column.
-	 * @param int    $row_id id of table row.
+	 * @param mixed  $column_value column value.
 	 * @return  object|null
 	 */
-	public function get_by( $column, $row_id ) {
+	public function get_by( $column, $column_value ) {
 		try {
 
 			$column = esc_sql( $column );
 			if ( ! $column || ! is_string( $column ) ) {
-				throw new InvalidArgumentException( esc_html__( '$column must be a non-empty string', 'atomic-wp-custom-table-and-query' ) );
+				throw new InvalidArgumentException(
+					sprintf(
+						// Translators: %s is a placeholder for the row ID.
+						esc_html__( '$column must be a non-empty string but provided "%s"', 'atomic-wp-custom-table-and-query' ),
+						$column
+					)
+				);
 			}
 
 			// Check if the column is in the list of valid columns.
-			$valid_columns = $this->table_columns;
+			$valid_columns = array_keys( $this->table_columns );
 			if ( ! in_array( $column, $valid_columns, true ) ) {
-				throw new InvalidArgumentException( esc_html__( '$column must be a valid column', 'atomic-wp-custom-table-and-query' ) );
+				throw new InvalidArgumentException(
+					sprintf(
+						// Translators: %s is a placeholder for the row ID.
+						esc_html__( '"%s" must be a valid column', 'atomic-wp-custom-table-and-query' ),
+						$column
+					)
+				);
 			}
 
-			$row_id = absint( $row_id );
-			if ( ! $row_id ) {
-				throw new InvalidArgumentException( esc_html__( '$row_id must be a non-zero integer', 'atomic-wp-custom-table-and-query' ) );
+			$column_value = esc_sql( $column_value );
+			if ( ! $column_value ) {
+				throw new InvalidArgumentException(
+					sprintf(
+						// Translators: %s is a placeholder for the row ID.
+						esc_html__( '$column_value must be a non-empty value but provided "%s"', 'atomic-wp-custom-table-and-query' ),
+						$column_value
+					)
+				);
 			}
 			global $wpdb;
 
-			/*$column escaped with esc_sql above*/
-			$sql         = $wpdb->prepare( 'SELECT * FROM %s WHERE %s = %d LIMIT 1;', $this->table_name, $column, $row_id );
+			$sql = "SELECT * FROM {$this->table_name} WHERE {$column} = {$column_value} LIMIT 1;";
+
 			$cache_key   = $this->generate_cache_key( $sql );
 			$cache_value = $this->get_cache_value( $cache_key );
 
 			if ( false === $cache_value ) {
+
 				$cache_value = $wpdb->get_row( $sql );//phpcs:ignore
+
 				$this->add_cache_value( $cache_key, $cache_value );
 			}
 
@@ -251,13 +331,23 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 
 		} catch ( InvalidArgumentException $e ) {
 
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'invalid_argument', $e->getMessage() );
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'get_by'
+			);
+
+			error_log(  $error_message );//phpcs:ignore
+			return new WP_Error( 'invalid_argument', $error_message );
 
 		} catch ( Exception $e ) {
 
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'db_error', $e->getMessage() );
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'get_by'
+			);
+
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'db_error', $error_message );
 
 		}
 	}
@@ -280,9 +370,15 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 			}
 
 			// Check if the column is in the list of valid columns.
-			$valid_columns = $this->table_columns;
+			$valid_columns = array_keys( $this->table_columns );
 			if ( ! in_array( $column, $valid_columns, true ) ) {
-				throw new InvalidArgumentException( esc_html__( '$column must be a valid column', 'atomic-wp-custom-table-and-query' ) );
+				throw new InvalidArgumentException(
+					sprintf(
+						// Translators: %s is a placeholder for the row ID.
+						esc_html__( '"%s" must be a valid column', 'atomic-wp-custom-table-and-query' ),
+						$column
+					)
+				);
 			}
 
 			$row_id = absint( $row_id );
@@ -290,7 +386,8 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 				throw new InvalidArgumentException( esc_html__( '$row_id must be a non-zero integer', 'atomic-wp-custom-table-and-query' ) );
 			}
 			global $wpdb;
-			$sql         = $wpdb->prepare( 'SELECT %s FROM %s WHERE %s = %d LIMIT 1;', $column, $this->table_name, $this->primary_key, $row_id );
+			$sql = "SELECT {$column} FROM {$this->table_name} WHERE {$this->primary_key} = {$row_id} LIMIT 1;";
+
 			$cache_key   = $this->generate_cache_key( $sql );
 			$cache_value = $this->get_cache_value( $cache_key );
 
@@ -302,14 +399,20 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 			return $this->escaping_column( $cache_value, $column );
 
 		} catch ( InvalidArgumentException $e ) {
-
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'invalid_argument', $e->getMessage() );
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'get_column'
+			);
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'invalid_argument', $error_message );
 
 		} catch ( Exception $e ) {
-
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'db_error', $e->getMessage() );
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'get_column'
+			);
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'db_error', $error_message );
 
 		}
 	}
@@ -332,9 +435,15 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 				throw new InvalidArgumentException( esc_html__( '$column must be a non-empty string', 'atomic-wp-custom-table-and-query' ) );
 			}
 
-			$valid_columns = $this->table_columns;
+			$valid_columns = array_keys( $this->table_columns );
 			if ( ! in_array( $column, $valid_columns ) ) {
-				throw new InvalidArgumentException( esc_html__( '$column must be a valid column', 'atomic-wp-custom-table-and-query' ) );
+				throw new InvalidArgumentException(
+					sprintf(
+						// Translators: %s is a placeholder for the row ID.
+						esc_html__( '"%s" must be a valid column', 'atomic-wp-custom-table-and-query' ),
+						$column
+					)
+				);
 			}
 
 			$column_where = esc_sql( $column_where );
@@ -343,13 +452,20 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 			}
 
 			if ( ! in_array( $column_where, $valid_columns ) ) {
-				throw new InvalidArgumentException( esc_html__( '$column_where must be a valid column', 'atomic-wp-custom-table-and-query' ) );
+				throw new InvalidArgumentException(
+					sprintf(
+						// Translators: %s is a placeholder for the row ID.
+						esc_html__( '"%s" must be a valid column', 'atomic-wp-custom-table-and-query' ),
+						$column_where
+					)
+				);
 			}
 
 			$column_value = esc_sql( $column_value );
 
 			global $wpdb;
-			$sql         = $wpdb->prepare( 'SELECT %s FROM %s WHERE %s = %s LIMIT 1;', $column, $this->table_name, $column_where, $column_value );
+			$sql = "SELECT {$column} FROM {$this->table_name} WHERE {$column_where} = {$column_value} LIMIT 1;";
+
 			$cache_key   = $this->generate_cache_key( $sql );
 			$cache_value = $this->get_cache_value( $cache_key );
 
@@ -361,15 +477,22 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 			return $this->escaping_column( $cache_value, $column );
 
 		} catch ( InvalidArgumentException $e ) {
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'get_column_by'
+			);
 
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'invalid_argument', $e->getMessage() );
+			error_log( $error_message);//phpcs:ignore
+			return new WP_Error( 'invalid_argument', $error_message );
 
 		} catch ( Exception $e ) {
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'get_column_by'
+			);
 
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'db_error', $e->getMessage() );
-
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'db_error', $error_message );
 		}
 	}
 
@@ -377,7 +500,7 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 	 * Escaping data
 	 *
 	 * @param object $data column data.
-	 * @return object after escaping.
+	 * @return object||boolean after escaping.
 	 * @since 1.0.0
 	 */
 	public function escaping_data( $data ) {
@@ -385,7 +508,7 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 		$escaped_data = new stdClass();
 		foreach ( $this->table_columns as $column => $data_type ) {
 			if ( isset( $data->$column ) ) {
-				$escaped_value = apply_filters( 'at_escaped_data', null, $column, $data->$column, $data );
+				$escaped_value = apply_filters( 'atomic_wp_custom_table_and_query_escaped_data', null, $column, $data->$column, $data );
 				if ( null !== $escaped_value ) {
 					$escaped_data[ $column ] = $escaped_value;
 				} else {
@@ -408,6 +531,9 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 					}
 				}
 			}
+		}
+		if ( empty( (array) $escaped_data ) ) {
+			return false;
 		}
 		return $escaped_data;
 	}
@@ -468,8 +594,9 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 			$sanitized_data = array();
 			foreach ( $this->table_columns as $column => $data_type ) {
 				if ( isset( $data[ $column ] ) ) {
-					$sanitized_value = apply_filters( 'at_validate_and_sanitize_data', null, $column, $data[ $column ], $data );
-					if ( null !== $sanitized_data ) {
+					$sanitized_value = apply_filters( 'atomic_wp_custom_table_and_query_validate_and_sanitize_data', null, $column, $data[ $column ], $data );
+
+					if ( 'NULL' !== gettype( $sanitized_value ) ) {
 						$sanitized_data[ $column ] = $sanitized_value;
 					} else {
 						switch ( $data_type ) {
@@ -492,17 +619,23 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 					}
 				}
 			}
-
 			return $sanitized_data;
 		} catch ( InvalidArgumentException $e ) {
-
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'invalid_argument', $e->getMessage() );
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'validate_and_sanitize_data'
+			);
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'invalid_argument', $error_message );
 
 		} catch ( Exception $e ) {
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'validate_and_sanitize_data'
+			);
 
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'validation_error', $e->getMessage() );
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'validation_error', $error_message );
 
 		}
 	}
@@ -566,14 +699,21 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 			$this->set_last_changed();
 			return absint( $wpdb->insert_id );
 		} catch ( InvalidArgumentException $e ) {
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'insert'
+			);
 
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'invalid_argument', $e->getMessage() );
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'invalid_argument', $error_message );
 
 		} catch ( Exception $e ) {
-
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'db_error', $e->getMessage() );
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'insert'
+			);
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'db_error', $error_message );
 		}
 	}
 
@@ -599,6 +739,7 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 		try {
 			// Validate $row_id.
 			$row_id = absint( $row_id );
+
 			if ( ! $row_id ) {
 				throw new InvalidArgumentException( esc_html__( '$row_id must be a non-zero integer', 'atomic-wp-custom-table-and-query' ) );
 			}
@@ -609,7 +750,6 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 
 			/*Expected array type data as sanitized data*/
 			if ( ! is_array( $data ) ) {
-				// Validate and sanitize the data.
 				$data = $this->validate_and_sanitize_data( $data );
 
 				if ( is_wp_error( $data ) ) {
@@ -621,8 +761,13 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 			if ( empty( $where ) ) {
 				$where = $this->primary_key;
 			} elseif ( ! in_array( $where, $this->table_columns, true ) ) {
-				// Validate the WHERE clause.
-				throw new InvalidArgumentException( esc_html__( '$where must be a valid column', 'atomic-wp-custom-table-and-query' ) );
+				throw new InvalidArgumentException(
+					sprintf(
+						// Translators: %s is a placeholder for the row ID.
+						esc_html__( '"%s" must be a valid column', 'atomic-wp-custom-table-and-query' ),
+						$where
+					)
+				);
 			}
 
 			/*Typecast to array*/
@@ -633,23 +778,33 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 
 			global $wpdb;
 			/*Update the data*/
+
 			$result = $wpdb->update( $this->table_name, $data, array( $where => $row_id ) );//phpcs:ignore
 			if ( false === $result || $wpdb->last_error ) {
 				throw new Exception( $wpdb->last_error );
 			}
 
 			$this->set_last_changed();
-			return absint( $result );
+			return $row_id;
 
 		} catch ( InvalidArgumentException $e ) {
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'update'
+			);
 
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'invalid_argument', $e->getMessage() );
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'invalid_argument', $error_message );
 
 		} catch ( Exception $e ) {
 
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'db_error', $e->getMessage() );
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'update'
+			);
+
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'db_error', $error_message );
 
 		}
 	}
@@ -679,15 +834,23 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 			}
 
 			$this->set_last_changed();
-			return absint( $result );
+			return $row_id;
 		} catch ( InvalidArgumentException $e ) {
-			error_log( $e->getMessage() );//phpcs:ignore
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'delete'
+			);
+			error_log( $error_message );//phpcs:ignore
 
-			return new WP_Error( 'invalid_argument', $e->getMessage() );
+			return new WP_Error( 'invalid_argument', $error_message );
 		} catch ( Exception $e ) {
 
-			error_log( $e->getMessage() );//phpcs:ignore
-			return new WP_Error( 'db_error', $e->getMessage() );
+			$error_message = $this->get_error_message(
+				$e->getMessage(),
+				'delete'
+			);
+			error_log( $error_message );//phpcs:ignore
+			return new WP_Error( 'db_error', $error_message );
 		}
 	}
 
@@ -772,30 +935,30 @@ abstract class ATOMIC_WP_CUSTOM_TABLE {
 			$table = $this->table_name;
 			global $wpdb;
 
-			$query = $wpdb->prepare( 'SELECT * FROM %s', $wpdb->esc_like( $table ) );
+			$query = "SELECT * FROM {$this->table_name}";
 
 			$table_columns = $wpdb->get_row( $query, ARRAY_A );//phpcs:ignore
-
+			if ( ! $table_columns ) {
+				throw new Exception( esc_html__( 'No table columns found!', 'atomic-wp-custom-table-and-query' ) );
+			}
 			$sql = '';
 			switch ( $action ) {
 				case 'ADD':
-					if ( ! isset( $table_columns[ $column_name ] ) ) {
-						$sql = $wpdb->prepare( 'ALTER TABLE %s ADD %s %s %s %s', $table, $column_name, $data_type, $suffix, $suffix_column );
+					if ( ! array_key_exists( $column_name, $table_columns ) ) {
+						$sql = "ALTER TABLE {$table} ADD {$column_name} {$data_type} {$suffix} {$suffix_column}";
 					}
 					break;
 
 				case 'DROP':
 				case 'ALTER':
 				case 'MODIFY':
-					if ( isset( $table_columns[ $column_name ] ) ) {
-						$sql = $wpdb->prepare( 'ALTER TABLE %s %s %s %s %s %s', $table, $action, $column_name, $data_type, $suffix, $suffix_column );
+					if ( array_key_exists( $column_name, $table_columns ) ) {
+						$sql = "ALTER TABLE {$table} {$action} {$column_name} {$data_type} {$suffix} {$suffix_column}";
 					}
-					break;
-
 			}
 			if ( $sql ) {
                 $result = $wpdb->query( $sql );//phpcs:ignore
-				if ( false !== $result || $wpdb->last_error ) {
+				if ( $wpdb->last_error ) {
 					throw new Exception( $wpdb->last_error );
 				}
 
