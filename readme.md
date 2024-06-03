@@ -90,7 +90,7 @@ Thank you for contributing to this project!
 
 - **Santosh Kunwar** - [codersantosh](https://twitter.com/codersantosh)
 
-See also the list of [contributors](https://github.com/codersantosh/acme-coming-soon/graphs/contributors) who participated in this project.
+See also the list of [contributors](https://github.com/codersantosh/patterns-store/graphs/contributors) who participated in this project.
 
 ## Recommendations
 
@@ -101,4 +101,4 @@ See also the list of [contributors](https://github.com/codersantosh/acme-coming-
 
 - GPLv2 or later © [Santosh Kunwar](https://twitter.com/codersantosh).
 
-The plugin is created using WP React Plugin Boilerplate and Atrc (atrc) - Atomic React Components, developed by the same author. For other libraries used, please view the respective page of the project.
+This library is primarily finished and can be safely integrated into your project. While a few methods remain under development (marked as TODO), the core functionality is stable. I welcome contributions and suggestions from experienced developers!
